@@ -2,44 +2,50 @@
 
 [move]
 version = 3
-manifest_digest = "128B5B19862FE92AEB1F03AF8008F8FB78BC078164D23129DF6F934BFB1A44BE"
-deps_digest = "F9B494B64F0615AED0E98FC12A85B85ECD2BC5185C22D30E7F67786BB52E507C"
+manifest_digest = "F96C33268CDC1968363E792AD174ADF1BCB6E0AA21499F7F8E791B3B3A300104"
+deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
-  { id = "Bridge", name = "Bridge" },
-  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
-  { id = "SuiSystem", name = "SuiSystem" },
-]
-
-[[move.package]]
-id = "Bridge"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/bridge" }
-
-dependencies = [
-  { id = "MoveStdlib", name = "MoveStdlib" },
-  { id = "Sui", name = "Sui" },
-  { id = "SuiSystem", name = "SuiSystem" },
+  { id = "usdc", name = "usdc" },
 ]
 
 [[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.46.2-43e8aad17f0d", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.46.2-43e8aad17f0d", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
 ]
 
 [[move.package]]
-id = "SuiSystem"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/sui-system" }
+id = "stablecoin"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/stablecoin" }
 
 dependencies = [
-  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
+  { id = "sui_extensions", name = "sui_extensions" },
+]
+
+[[move.package]]
+id = "sui_extensions"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/sui_extensions" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
+id = "usdc"
+source = { git = "https://github.com/circlefin/stablecoin-sui.git", rev = "master", subdir = "packages/usdc" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+  { id = "stablecoin", name = "stablecoin" },
+  { id = "sui_extensions", name = "sui_extensions" },
 ]
 
 [move.toolchain-version]
@@ -51,12 +57,12 @@ flavor = "sui"
 
 [env.devnet]
 chain-id = "f12dda03"
-original-published-id = "0x7ef72d9aa387a861a32cb05dc3b33184b8b2903b7a71e5aaa3bde3128da470ff"
-latest-published-id = "0x7ef72d9aa387a861a32cb05dc3b33184b8b2903b7a71e5aaa3bde3128da470ff"
+original-published-id = "0x8d448b41f88c9d2b2f01a40f608c2a593b2d75d89d366478dcd7bf7060b1313b"
+latest-published-id = "0x8d448b41f88c9d2b2f01a40f608c2a593b2d75d89d366478dcd7bf7060b1313b"
 published-version = "1"
 
 [env.testnet]
 chain-id = "4c78adac"
-original-published-id = "0xe31fcb0fb95005363dac1b86d2b9a68c7988ea5f13844b6834cd3916554f8313"
-latest-published-id = "0xe31fcb0fb95005363dac1b86d2b9a68c7988ea5f13844b6834cd3916554f8313"
+original-published-id = "0x71b56a30270f796d224f7d3594650d32da33675ba1eae33637b3f16613bc89d9"
+latest-published-id = "0x71b56a30270f796d224f7d3594650d32da33675ba1eae33637b3f16613bc89d9"
 published-version = "1"

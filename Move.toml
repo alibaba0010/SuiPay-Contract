@@ -16,7 +16,8 @@ edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 # To resolve a version conflict and force a specific version for dependency
 # override use `override = true`
 # Override = { local = "../conflicting/version", override = true }
-
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.46.2-43e8aad17f0d", override = true }
+ usdc = { git = "https://github.com/circlefin/stablecoin-sui.git", subdir = "packages/usdc", rev = "master" }
 [addresses]
 
 secure_token_contract = "0x0"

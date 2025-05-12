@@ -10,6 +10,8 @@ module secure_token_contract::secure_token {
     use sui::table::{Self, Table};
     use std::option::{Self, Option};
     use sui::clock::{Self, Clock};
+    use usdc::usdc::USDC;
+
 
     /// Transaction Status enum
     const STATUS_ACTIVE: u8 = 0;
@@ -17,6 +19,12 @@ module secure_token_contract::secure_token {
     const STATUS_CLAIMED: u8 = 2;
     const STATUS_REJECTED: u8 = 3;
     const STATUS_REFUNDED: u8 = 4;
+    const STATUS_EXPIRED: u8 = 5;
+    const STATUS_PENDING: u8 = 6;
+
+    /// Token types for multi-currency support
+    const TOKEN_TYPE_SUI: bool = true;
+    const TOKEN_TYPE_USDC: bool = false;
 
     /// User information
     public struct UserInfo has key, store {
@@ -36,6 +44,7 @@ module secure_token_contract::secure_token {
         verification_code: String,
         timestamp: u64,
         updated_digest: Option<String>,
+        is_sui: bool, // Token type: true for SUI, false for USDC
     }
 
     /// Structure for Bulk Transfer Recipients
@@ -54,6 +63,7 @@ module secure_token_contract::secure_token {
         total_amount: u64,
         timestamp: u64,
         updated_digests: Table<address, String>,
+        is_sui: bool, // Token type: true for SUI, false for USDC
     }
 
     /// Scheduled Transaction information
@@ -65,6 +75,7 @@ module secure_token_contract::secure_token {
         scheduled_date: u64, // timestamp in milliseconds
         status: u8,
         transaction_digest: String,
+        is_sui: bool, // Token type: true for SUI, false for USDC
     }
 
     /// Scheduled Bulk Transaction information
@@ -76,6 +87,7 @@ module secure_token_contract::secure_token {
         scheduled_date: u64, // timestamp in milliseconds
         status: u8,
         transaction_digest: String,
+        is_sui: bool, // Token type: true for SUI, false for USDC
     }
 
     /// New structure for payroll information
@@ -85,6 +97,7 @@ module secure_token_contract::secure_token {
         amounts: vector<u64>,
         created_by: address,
         created_at: u64,
+        is_sui: bool,
     }
 
     /// Event emitted when a payroll is created
@@ -93,6 +106,7 @@ module secure_token_contract::secure_token {
         created_by: address,
         recipient_count: u64,
         total_amount: u64,
+        is_sui: bool,
     }
 
     /// Event emitted when a user is registered
@@ -108,6 +122,7 @@ module secure_token_contract::secure_token {
         receiver: address,
         amount: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a token is claimed
@@ -115,6 +130,7 @@ module secure_token_contract::secure_token {
         receiver: address,
         amount: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a token is rejected
@@ -122,6 +138,7 @@ module secure_token_contract::secure_token {
         receiver: address,
         amount: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a token is refunded
@@ -129,6 +146,7 @@ module secure_token_contract::secure_token {
         sender: address,
         amount: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a bulk transfer is initiated
@@ -137,6 +155,7 @@ module secure_token_contract::secure_token {
         total_amount: u64,
         recipient_count: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a transaction is scheduled
@@ -146,6 +165,7 @@ module secure_token_contract::secure_token {
         amount: u64,
         scheduled_date: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted when a bulk transaction is scheduled
@@ -155,6 +175,25 @@ module secure_token_contract::secure_token {
         recipient_count: u64,
         scheduled_date: u64,
         transaction_digest: String,
+        is_sui: bool,
+    }
+
+    /// Event emitted when a scheduled transaction is executed
+    public struct ScheduledTransactionExecuted has copy, drop, store {
+        sender: address,
+        receiver: address,
+        amount: u64,
+        transaction_digest: String,
+        is_sui: bool,
+    }
+
+    /// Event emitted when a scheduled bulk transaction is executed
+    public struct ScheduledBulkTransactionExecuted has copy, drop, store {
+        sender: address,
+        total_amount: u64,
+        recipient_count: u64,
+        transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Event emitted for notification purposes
@@ -180,8 +219,9 @@ module secure_token_contract::secure_token {
         username_to_address: Table<String, address>,
         // Track all user addresses for iteration
         all_users: vector<address>,
-        // Escrow balance for tokens
-        escrow_balance: Balance<SUI>,
+        // Escrow balances for tokens
+        escrow_balance_sui: Balance<SUI>,
+        escrow_balance_usdc: Balance<USDC>,
         // Payroll information
         payrolls: Table<String, PayrollInfo>,
         // Track payrolls per user
@@ -202,6 +242,7 @@ module secure_token_contract::secure_token {
         amounts: vector<u64>,
         total_amount: u64,
         created_at: u64,
+        is_sui: bool,
     }
 
     /// Transaction info for return values
@@ -213,6 +254,7 @@ module secure_token_contract::secure_token {
         verification_code: String,
         timestamp: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Bulk Transaction info for return values
@@ -222,6 +264,7 @@ module secure_token_contract::secure_token {
         total_amount: u64,
         timestamp: u64,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Scheduled Transaction info for return values
@@ -232,6 +275,7 @@ module secure_token_contract::secure_token {
         scheduled_date: u64,
         status: u8,
         transaction_digest: String,
+        is_sui: bool,
     }
 
     /// Error codes
@@ -253,6 +297,8 @@ module secure_token_contract::secure_token {
     const EINVALID_SENDER: u64 = 20;
     const EINVALID_SCHEDULED_DATE: u64 = 21;
     const ETRANSACTION_NOT_ACTIVE: u64 = 22;
+    const ETRANSACTION_NOT_SCHEDULED: u64 = 23;
+    const ESCHEDULE_TIME_NOT_REACHED: u64 = 24;
 
     /// Initialize the contract
     fun init(ctx: &mut TxContext) {
@@ -266,7 +312,8 @@ module secure_token_contract::secure_token {
             email_to_address: table::new<String, address>(ctx),
             username_to_address: table::new<String, address>(ctx),
             all_users: vector::empty<address>(),
-            escrow_balance: balance::zero<SUI>(),
+            escrow_balance_sui: balance::zero<SUI>(),
+            escrow_balance_usdc: balance::zero<USDC>(),
             payrolls: table::new<String, PayrollInfo>(ctx),
             user_payrolls: table::new<address, vector<String>>(ctx),
         };
@@ -325,6 +372,7 @@ module secure_token_contract::secure_token {
         name: vector<u8>,
         recipients: vector<address>,
         amounts: vector<u64>,
+        is_sui: bool,
         ctx: &mut TxContext
     ) {
         let sender = tx_context::sender(ctx);
@@ -355,6 +403,7 @@ module secure_token_contract::secure_token {
             amounts: amounts,
             created_by: sender,
             created_at: tx_context::epoch(ctx), // Use epoch as timestamp
+            is_sui: is_sui,
         };
         
         // Add payroll to tables
@@ -373,6 +422,203 @@ module secure_token_contract::secure_token {
             created_by: sender,
             recipient_count: recipients_len,
             total_amount: total_amount,
+            is_sui: is_sui,
+        });
+    }
+
+    /// Execute payroll - send tokens to all recipients in a payroll
+    public entry fun execute_payroll_sui(
+        secure_token: &mut SecureToken,
+        payroll_name: vector<u8>,
+        payment: Coin<SUI>,
+        tx_digest: vector<u8>,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let name_str = string::utf8(payroll_name);
+        let tx_digest_str = string::utf8(tx_digest);
+        
+        // Verify payroll exists
+        assert!(table::contains(&secure_token.payrolls, name_str), EPAYROLL_NOT_FOUND);
+        
+        let payroll = table::borrow(&secure_token.payrolls, name_str);
+        
+        // Verify sender is payroll owner
+        assert!(payroll.created_by == sender, ENOT_PAYROLL_OWNER);
+        
+        // Verify payroll is for SUI
+        assert!(payroll.is_sui == true, EINVALID_PARAMETERS);
+        
+        // Calculate total amount needed
+        let mut total_amount = 0u64;
+        let mut i = 0;
+        let amounts_len = vector::length(&payroll.amounts);
+        while (i < amounts_len) {
+            total_amount = total_amount + *vector::borrow(&payroll.amounts, i);
+            i = i + 1;
+        };
+        
+        // Verify sufficient funds
+        let payment_value = coin::value(&payment);
+        assert!(payment_value >= total_amount, EINSUFFICIENT_FUNDS);
+        
+        // Take payment into escrow
+        let payment_balance = coin::into_balance(payment);
+        balance::join(&mut secure_token.escrow_balance_sui, payment_balance);
+        
+        // Create bulk transfer record
+        let mut recipients = vector::empty<Recipient>();
+        let timestamp = tx_context::epoch(ctx);
+        
+        // For each recipient, generate verification code and add to recipients
+        i = 0;
+        while (i < vector::length(&payroll.recipients)) {
+            let recipient_addr = *vector::borrow(&payroll.recipients, i);
+            let amount = *vector::borrow(&payroll.amounts, i);
+            
+            // Generate verification code
+            let verification_code = generate_verification_code(sender, recipient_addr, timestamp);
+            
+            let recipient = Recipient {
+                address: recipient_addr,
+                amount: amount,
+                status: STATUS_ACTIVE,
+                verification_code: verification_code,
+            };
+            
+            vector::push_back(&mut recipients, recipient);
+            
+            // Emit notification for each recipient
+            event::emit(NotificationEvent {
+                recipient: recipient_addr,
+                notification_type: string::utf8(b"claim"),
+                title: string::utf8(b"Payroll Payment Available"),
+                description: string::utf8(b"You have a payroll payment available to claim"),
+                transaction_digest: tx_digest_str,
+            });
+            
+            i = i + 1;
+        };
+        
+        // Create bulk transfer record
+        let bulk_transfer = BulkTokenTransfer {
+            id: object::new(ctx),
+            sender: sender,
+            recipients: recipients,
+            total_amount: total_amount,
+            timestamp: timestamp,
+            updated_digests: table::new<address, String>(ctx),
+            is_sui: true,
+        };
+        
+        // Add to bulk transfers table
+        table::add(&mut secure_token.bulk_transfers, tx_digest_str, bulk_transfer);
+        
+        // Emit event
+        event::emit(BulkTransferInitiated {
+            sender: sender,
+            total_amount: total_amount,
+            recipient_count: vector::length(&payroll.recipients),
+            transaction_digest: tx_digest_str,
+            is_sui: true,
+        });
+    }
+
+    /// Execute payroll with USDC
+    public entry fun execute_payroll_usdc(
+        secure_token: &mut SecureToken,
+        payroll_name: vector<u8>,
+        payment: Coin<USDC>,
+        tx_digest: vector<u8>,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let name_str = string::utf8(payroll_name);
+        let tx_digest_str = string::utf8(tx_digest);
+        
+        // Verify payroll exists
+        assert!(table::contains(&secure_token.payrolls, name_str), EPAYROLL_NOT_FOUND);
+        
+        let payroll = table::borrow(&secure_token.payrolls, name_str);
+        
+        // Verify sender is payroll owner
+        assert!(payroll.created_by == sender, ENOT_PAYROLL_OWNER);
+        
+        // Verify payroll is for USDC
+        assert!(payroll.is_sui == false, EINVALID_PARAMETERS);
+        
+        // Calculate total amount needed
+        let mut total_amount = 0u64;
+        let mut i = 0;
+        let amounts_len = vector::length(&payroll.amounts);
+        while (i < amounts_len) {
+            total_amount = total_amount + *vector::borrow(&payroll.amounts, i);
+            i = i + 1;
+        };
+        
+        // Verify sufficient funds
+        let payment_value = coin::value(&payment);
+        assert!(payment_value >= total_amount, EINSUFFICIENT_FUNDS);
+        
+        // Take payment into escrow
+        let payment_balance = coin::into_balance(payment);
+        balance::join(&mut secure_token.escrow_balance_usdc, payment_balance);
+        
+        // Create bulk transfer record
+        let mut recipients = vector::empty<Recipient>();
+        let timestamp = tx_context::epoch(ctx);
+        
+        // For each recipient, generate verification code and add to recipients
+        i = 0;
+        while (i < vector::length(&payroll.recipients)) {
+            let recipient_addr = *vector::borrow(&payroll.recipients, i);
+            let amount = *vector::borrow(&payroll.amounts, i);
+            
+            // Generate verification code
+            let verification_code = generate_verification_code(sender, recipient_addr, timestamp);
+            
+            let recipient = Recipient {
+                address: recipient_addr,
+                amount: amount,
+                status: STATUS_ACTIVE,
+                verification_code: verification_code,
+            };
+            
+            vector::push_back(&mut recipients, recipient);
+            
+            // Emit notification for each recipient
+            event::emit(NotificationEvent {
+                recipient: recipient_addr,
+                notification_type: string::utf8(b"claim"),
+                title: string::utf8(b"USDC Payroll Payment Available"),
+                description: string::utf8(b"You have a USDC payroll payment available to claim"),
+                transaction_digest: tx_digest_str,
+            });
+            
+            i = i + 1;
+        };
+        
+        // Create bulk transfer record
+        let bulk_transfer = BulkTokenTransfer {
+            id: object::new(ctx),
+            sender: sender,
+            recipients: recipients,
+            total_amount: total_amount,
+            timestamp: timestamp,
+            updated_digests: table::new<address, String>(ctx),
+            is_sui: false,
+        };
+        
+        // Add to bulk transfers table
+        table::add(&mut secure_token.bulk_transfers, tx_digest_str, bulk_transfer);
+        
+        // Emit event
+        event::emit(BulkTransferInitiated {
+            sender: sender,
+            total_amount: total_amount,
+            recipient_count: vector::length(&payroll.recipients),
+            transaction_digest: tx_digest_str,
+            is_sui: false,
         });
     }
 
@@ -414,6 +660,7 @@ module secure_token_contract::secure_token {
                     amounts: payroll.amounts,
                     total_amount: total_amount,
                     created_at: payroll.created_at,
+                    is_sui: payroll.is_sui,
                 };
                 
                 vector::push_back(&mut result, payroll_return);
@@ -450,6 +697,7 @@ module secure_token_contract::secure_token {
                 amounts: payroll.amounts,
                 total_amount: total_amount,
                 created_at: payroll.created_at,
+                is_sui: payroll.is_sui,
             })
         } else {
             option::none<PayrollInfoReturn>()
@@ -571,8 +819,8 @@ module secure_token_contract::secure_token {
         
         emails
     }
-
-    /// Generate verification code (helper function)
+    
+       /// Generate verification code (helper function)
     fun generate_verification_code(sender: address, receiver: address, timestamp: u64): String {
         // Simple hash-based code generation
         // In production, use a more secure method
@@ -601,7 +849,7 @@ module secure_token_contract::secure_token {
         hex_code
     }
 
-    /// Init transfer to escrow with verification
+    /// Init transfer to escrow with verification and token type
     public entry fun init_transfer(
         secure_token: &mut SecureToken,
         amount: Coin<SUI>,
@@ -621,7 +869,7 @@ module secure_token_contract::secure_token {
         
         // Convert to balance and add to escrow
         let balance_to_escrow = coin::into_balance(amount);
-        balance::join(&mut secure_token.escrow_balance, balance_to_escrow);
+        balance::join(&mut secure_token.escrow_balance_sui, balance_to_escrow);
         
         // Create transfer record
         let transfer_record = TokenTransfer {
@@ -633,6 +881,7 @@ module secure_token_contract::secure_token {
             verification_code,
             timestamp,
             updated_digest: option::none(),
+            token_type: TOKEN_TYPE_SUI,
         };
         
         // Add to transfers table
@@ -644,6 +893,7 @@ module secure_token_contract::secure_token {
             receiver,
             amount: amount_value,
             transaction_digest: tx_digest_str,
+            token_type: TOKEN_TYPE_SUI,
         });
         
         // Emit notification event for receiver
@@ -656,7 +906,64 @@ module secure_token_contract::secure_token {
         });
     }
 
-    /// Send funds directly to receiver
+    /// Init transfer to escrow with USDC
+    public entry fun init_transfer_usdc(
+        secure_token: &mut SecureToken,
+        amount: Coin<USDC>,
+        receiver: address,
+        tx_digest: vector<u8>,
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let amount_value = coin::value(&amount);
+        let timestamp = tx_context::epoch(ctx);
+        let tx_digest_str = string::utf8(tx_digest);
+        
+        assert!(amount_value > 0, EINVALID_AMOUNT);
+        
+        // Generate verification code
+        let verification_code = generate_verification_code(sender, receiver, timestamp);
+        
+        // Convert to balance and add to escrow
+        let balance_to_escrow = coin::into_balance(amount);
+        balance::join(&mut secure_token.escrow_balance_usdc, balance_to_escrow);
+        
+        // Create transfer record
+        let transfer_record = TokenTransfer {
+            id: object::new(ctx),
+            sender,
+            receiver,
+            amount: amount_value,
+            status: STATUS_ACTIVE,
+            verification_code,
+            timestamp,
+            updated_digest: option::none(),
+            token_type: TOKEN_TYPE_USDC,
+        };
+        
+        // Add to transfers table
+        table::add(&mut secure_token.transfers, tx_digest_str, transfer_record);
+        
+        // Emit event
+        event::emit(TransferInitiated {
+            sender,
+            receiver,
+            amount: amount_value,
+            transaction_digest: tx_digest_str,
+            token_type: TOKEN_TYPE_USDC,
+        });A
+        
+        // Emit notification event for receiver
+        event::emit(NotificationEvent {
+            recipient: receiver,
+            notification_type: string::utf8(b"claim"),
+            title: string::utf8(b"USDC Payment Available to Claim"),
+            description: string::utf8(b"You have a USDC payment available to claim"),
+            transaction_digest: tx_digest_str,
+        });
+    }
+
+    /// Send funds directly to receiver with SUI
     public entry fun send_funds_directly(
         secure_token: &mut SecureToken,
         receiver: address,
@@ -680,187 +987,26 @@ module secure_token_contract::secure_token {
             verification_code: string::utf8(b""),
             timestamp: tx_context::epoch(ctx),
             updated_digest: option::none(),
+            token_type: TOKEN_TYPE_SUI,
         };
-        
-        // Add to transfers table
+
         table::add(&mut secure_token.transfers, tx_digest_str, transfer_record);
-        
-        // Transfer tokens directly from sender to receiver
-        transfer::public_transfer(amount, receiver);
-        
+      // Emit event
         event::emit(TransferInitiated {
             sender,
             receiver,
             amount: amount_value,
             transaction_digest: tx_digest_str,
-        });
+            token_type: TOKEN_TYPE_USDC,
+        });A
         
         // Emit notification event for receiver
         event::emit(NotificationEvent {
             recipient: receiver,
-            notification_type: string::utf8(b"payment"),
-            title: string::utf8(b"Payment Received"),
-            description: string::utf8(b"You received a direct payment"),
+            notification_type: string::utf8(b"claim"),
+            title: string::utf8(b"USDC Payment Available to Claim"),
+            description: string::utf8(b"You have a USDC payment available to claim"),
             transaction_digest: tx_digest_str,
         });
     }
-
-    /// Verify transaction (for claiming)
-    public fun verify_transaction(
-        secure_token: &SecureToken,
-        tx_digest: vector<u8>,
-        verification_code: vector<u8>,
-        receiver_address: address
-    ): bool {
-        let tx_digest_str = string::utf8(tx_digest);
-        let verification_code_str = string::utf8(verification_code);
-        
-        if (!table::contains(&secure_token.transfers, tx_digest_str)) {
-            return false
-        };
-        
-        let transfer = table::borrow(&secure_token.transfers, tx_digest_str);
-        
-        // Check if receiver matches and verification code is correct
-        if (transfer.receiver == receiver_address && 
-            string::bytes(&transfer.verification_code) == string::bytes(&verification_code_str) &&
-            transfer.status == STATUS_ACTIVE) {
-            return true
-        };
-        
-        false
-    }
-
-    /// Claim funds from escrow
-    public entry fun claim_funds(
-        secure_token: &mut SecureToken,
-        tx_digest: vector<u8>,
-        verification_code: vector<u8>,
-        updated_tx_digest: vector<u8>,
-        ctx: &mut TxContext
-    ) {
-        let receiver = tx_context::sender(ctx);
-        let tx_digest_str = string::utf8(tx_digest);
-        let verification_code_str = string::utf8(verification_code);
-        let updated_tx_digest_str = string::utf8(updated_tx_digest);
-        
-        // Verify transaction exists
-        assert!(table::contains(&secure_token.transfers, tx_digest_str), ETRANSACTION_NOT_FOUND);
-        
-        let transfer = table::borrow_mut(&mut secure_token.transfers, tx_digest_str);
-        
-        // Verify receiver, status and code
-        assert!(transfer.receiver == receiver, EINVALID_RECEIVER);
-        assert!(transfer.status == STATUS_ACTIVE, ETRANSACTION_NOT_ACTIVE);
-        assert!(string::bytes(&transfer.verification_code) == string::bytes(&verification_code_str), EINVALID_VERIFICATION_CODE);
-        
-        // Verify escrow has sufficient balance
-        assert!(balance::value(&secure_token.escrow_balance) >= transfer.amount, EINSUFFICIENT_BALANCE);
-        
-        // Transfer tokens from escrow to receiver
-        let token_balance = balance::split(&mut secure_token.escrow_balance, transfer.amount);
-        let payment = coin::from_balance(token_balance, ctx);
-        transfer::public_transfer(payment, receiver);
-        
-        // Update transfer status
-        transfer.status = STATUS_CLAIMED;
-        transfer.updated_digest = option::some(updated_tx_digest_str);
-        
-        // Emit event
-        event::emit(TokenClaimed {
-            receiver,
-            amount: transfer.amount,
-            transaction_digest: tx_digest_str,
-        });
-        
-        // Emit notification event for sender
-        event::emit(NotificationEvent {
-            recipient: transfer.sender,
-            notification_type: string::utf8(b"info"),
-            title: string::utf8(b"Payment Claimed"),
-            description: string::utf8(b"Your payment has been claimed"),
-            transaction_digest: tx_digest_str,
-        });
-    }
-
-    /// Reject funds (decline to claim)
-    public entry fun reject_funds(
-        secure_token: &mut SecureToken,
-        tx_digest: vector<u8>,
-        verification_code: vector<u8>,
-        updated_tx_digest: vector<u8>,
-        ctx: &mut TxContext
-    ) {
-        let receiver = tx_context::sender(ctx);
-        let tx_digest_str = string::utf8(tx_digest);
-        let verification_code_str = string::utf8(verification_code);
-        let updated_tx_digest_str = string::utf8(updated_tx_digest);
-        
-        // Verify transaction exists
-        assert!(table::contains(&secure_token.transfers, tx_digest_str), ETRANSACTION_NOT_FOUND);
-        
-        let transfer = table::borrow_mut(&mut secure_token.transfers, tx_digest_str);
-        
-        // Verify receiver, status and code
-        assert!(transfer.receiver == receiver, EINVALID_RECEIVER);
-        assert!(transfer.status == STATUS_ACTIVE, ETRANSACTION_NOT_ACTIVE);
-        assert!(string::bytes(&transfer.verification_code) == string::bytes(&verification_code_str), EINVALID_VERIFICATION_CODE);
-        
-        // Update transfer status
-        transfer.status = STATUS_REJECTED;
-        transfer.updated_digest = option::some(updated_tx_digest_str);
-        
-        // Emit event
-        event::emit(TokenRejected {
-            receiver,
-            amount: transfer.amount,
-            transaction_digest: tx_digest_str,
-        });
-        
-            // Emit notification event for sender
-            event::emit(NotificationEvent {
-                recipient: transfer.sender,
-                notification_type: string::utf8(b"warning"),
-                title: string::utf8(b"Payment Rejected"),
-                description: string::utf8(b"Your payment has been rejected. You can now reclaim it."),
-                transaction_digest: tx_digest_str,
-            });
-        }
-    
-        /// Refund rejected or expired transfer
-        public entry fun refund_transfer(
-            secure_token: &mut SecureToken,
-            tx_digest: vector<u8>,
-            updated_tx_digest: vector<u8>,
-            ctx: &mut TxContext
-        ) {
-            let sender = tx_context::sender(ctx);
-            let tx_digest_str = string::utf8(tx_digest);
-            let updated_tx_digest_str = string::utf8(updated_tx_digest);
-            
-            // Verify transaction exists
-            assert!(table::contains(&secure_token.transfers, tx_digest_str), ETRANSACTION_NOT_FOUND);
-            
-            let transfer = table::borrow_mut(&mut secure_token.transfers, tx_digest_str);
-            
-            // Verify sender and status
-            assert!(transfer.sender == sender, EINVALID_SENDER);
-            assert!(transfer.status == STATUS_REJECTED, EINVALID_STATUS);
-            
-            // Transfer tokens from escrow back to sender
-            let token_balance = balance::split(&mut secure_token.escrow_balance, transfer.amount);
-            let refund = coin::from_balance(token_balance, ctx);
-            transfer::public_transfer(refund, sender);
-            
-            // Update transfer status
-            transfer.status = STATUS_REFUNDED;
-            transfer.updated_digest = option::some(updated_tx_digest_str);
-            
-            // Emit event
-            event::emit(TokenRefunded {
-                sender,
-                amount: transfer.amount,
-                transaction_digest: tx_digest_str,
-            });
-        }
-    }
+ }
